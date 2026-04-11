@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "App user profile and subscription status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "status": { "type": "string", "enum": ["trial", "liberado", "bloqueado"] },
+        "trialStart": { "type": "string", "format": "date-time" },
+        "trialEnd": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role", "status", "trialStart", "trialEnd"]
+    },
+    "Calculation": {
+      "title": "Calculation",
+      "description": "Thermal load calculation record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "data": { "type": "object" },
+        "result": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "data", "result", "createdAt"]
+    },
+    "LoginLog": {
+      "title": "LoginLog",
+      "description": "Log of user logins",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "name", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/calculations/{calcId}": {
+      "schema": "Calculation",
+      "description": "Thermal load calculations"
+    },
+    "/logins/{logId}": {
+      "schema": "LoginLog",
+      "description": "Login history logs"
+    }
+  }
+}

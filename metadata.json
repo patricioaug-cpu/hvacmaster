@@ -1,0 +1,5 @@
+{
+  "name": "HVAC Master - Dimensionamento Técnico",
+  "description": "Aplicativo profissional para cálculo de carga térmica e dimensionamento de sistemas de ar-condicionado baseado na NBR 16401.",
+  "requestFramePermissions": []
+}

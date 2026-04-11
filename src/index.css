@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #22c55e;
+  --color-primary-dark: #16a34a;
+  --color-background: #000000;
+  --color-surface: #111111;
+  --color-border: #333333;
+}
+
+@layer base {
+  body {
+    @apply bg-black text-white antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.hvac-card {
+  @apply bg-[#111111] border border-[#333333] rounded-lg p-6 shadow-xl;
+}
+
+.hvac-input {
+  @apply bg-black border border-[#333333] text-white rounded px-4 py-2 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all;
+}
+
+.hvac-input-with-icon {
+  @apply bg-black border border-[#333333] text-white rounded pl-12 pr-4 py-2 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all;
+}
+
+.hvac-button {
+  @apply bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.hvac-button-outline {
+  @apply border border-green-600 text-green-600 hover:bg-green-600 hover:text-white font-bold py-2 px-4 rounded transition-all;
+}
+
+/* Responsive Report Styles */
+.report-container {
+  width: 100%;
+  max-width: 210mm;
+  min-height: 297mm;
+  padding: 10mm;
+  margin: 5mm auto;
+  background: white;
+  color: black;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+@media (max-width: 768px) {
+  .report-container {
+    padding: 5mm;
+    margin: 0;
+    min-height: auto;
+    box-shadow: none;
+  }
+}
+
+@media print {
+  .no-print { display: none; }
+  body { background: white; }
+  .report-container { margin: 0; box-shadow: none; }
+}
