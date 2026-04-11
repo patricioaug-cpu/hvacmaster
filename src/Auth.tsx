@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from './firebase';
-import { LogIn, UserPlus, Mail, Lock, User as UserIcon, AlertCircle, Check } from 'lucide-react';
+import { LogIn, UserPlus, Mail, Lock, User as UserIcon, AlertCircle, Check, Calculator, HelpCircle } from 'lucide-react';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -75,6 +75,14 @@ export default function Auth() {
   return (
     <div className="min-h-[80vh] flex items-center justify-center p-4">
       <div className="hvac-card w-full max-w-md">
+        <div className="flex justify-center mb-6">
+          <div className="flex items-center gap-2">
+            <div className="bg-green-600 p-2 rounded-lg">
+              <Calculator className="w-8 h-8 text-white" />
+            </div>
+            <span className="font-black text-3xl tracking-tighter text-white">HVAC<span className="text-green-500">MASTER</span></span>
+          </div>
+        </div>
         <div className="text-center mb-8">
           <div className="bg-green-600/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
             {isLogin ? <LogIn className="text-green-500 w-8 h-8" /> : <UserPlus className="text-green-500 w-8 h-8" />}

@@ -3,7 +3,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import Auth from './Auth';
 import ThermalCalculator from './ThermalCalculator';
 import AdminPanel from './AdminPanel';
-import { LogOut, Shield, Calculator, AlertTriangle, Mail } from 'lucide-react';
+import { LogOut, Shield, Calculator, AlertTriangle, Mail, HelpCircle } from 'lucide-react';
 import { auth } from './firebase';
 import { signOut } from 'firebase/auth';
 
@@ -61,6 +61,14 @@ function AppContent() {
           </div>
 
           <div className="flex items-center gap-4">
+            <a 
+              href="mailto:patricioaug@gmail.com?subject=Ajuda HVAC Master"
+              className="p-2 text-gray-400 hover:text-green-500 hover:bg-green-500/10 rounded-lg transition-all"
+              title="Ajuda / Suporte"
+            >
+              <HelpCircle className="w-5 h-5" />
+            </a>
+
             {isAdmin && (
               <button 
                 onClick={() => setView(view === 'calc' ? 'admin' : 'calc')}
