@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CalculationData, CalculationResult } from './types';
 import { formatBTU, formatKW, cn } from './lib/utils';
-import { Calculator, Sun, Users, Monitor, Lightbulb, ArrowRight, Save, Copy, Check, History, Trash2, Edit2, FileText, ChevronLeft, AlertTriangle, AlertCircle } from 'lucide-react';
+import { Calculator, Sun, Users, Monitor, Lightbulb, ArrowRight, Save, Copy, Check, History, Trash2, Edit2, FileText, ChevronLeft, AlertTriangle, AlertCircle, Plus, Trash } from 'lucide-react';
 import { db } from './firebase';
 import { collection, addDoc, query, where, getDocs, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
@@ -35,13 +35,9 @@ export default function ThermalCalculator() {
     equipmentCount: 1,
     lightingType: 'led',
     lightingPower: 100,
-    equipmentSelection: {
-      brand: '',
-      model: '',
-      voltage: '220V',
-      capacity: 0,
-      efficiency: 'A',
-    }
+    selectedEquipments: [
+      { brand: '', model: '', voltage: '220V', capacity: 0, quantity: 1, numFases: '', pipeType: '', notes: '' }
+    ]
   });
 
   const [result, setResult] = useState<CalculationResult | null>(null);
@@ -162,7 +158,21 @@ export default function ThermalCalculator() {
   };
 
   const editCalculation = (calc: any) => {
-    setData(calc.data);
+    let calculationData = { ...calc.data };
+    // Migração de dados legados
+    if (calculationData.equipmentSelection && !calculationData.selectedEquipments) {
+      calculationData.selectedEquipments = [{
+        brand: calculationData.equipmentSelection.brand || '',
+        model: calculationData.equipmentSelection.model || '',
+        voltage: calculationData.equipmentSelection.voltage || '220V',
+        capacity: calculationData.equipmentSelection.capacity || 0,
+        quantity: 1,
+        numFases: '',
+        pipeType: '',
+        notes: ''
+      }];
+    }
+    setData(calculationData);
     setResult(calc.result);
     setEditingId(calc.id);
     setStep(1);
@@ -170,13 +180,32 @@ export default function ThermalCalculator() {
   };
 
   const viewReport = (calc: any) => {
-    setData(calc.data);
+    let calculationData = { ...calc.data };
+    // Migração de dados legados
+    if (calculationData.equipmentSelection && !calculationData.selectedEquipments) {
+      calculationData.selectedEquipments = [{
+        brand: calculationData.equipmentSelection.brand || '',
+        model: calculationData.equipmentSelection.model || '',
+        voltage: calculationData.equipmentSelection.voltage || '220V',
+        capacity: calculationData.equipmentSelection.capacity || 0,
+        quantity: 1,
+        numFases: '',
+        pipeType: '',
+        notes: ''
+      }];
+    }
+    setData(calculationData);
     setResult(calc.result);
     setView('report');
   };
 
   const copyToClipboard = () => {
     if (!result) return;
+    
+    const equipmentsText = data.selectedEquipments?.map(eq => 
+      `- ${eq.quantity}x ${eq.brand} ${eq.model} (${formatBTU(eq.capacity)}) - ${eq.voltage}${eq.numFases ? ` | Fases: ${eq.numFases}` : ''}${eq.pipeType ? ` | Tubulação: ${eq.pipeType}` : ''}${eq.notes ? ` | Obs: ${eq.notes}` : ''}`
+    ).join('\n') || 'Nenhum equipamento selecionado';
+
     const text = `
 RELATÓRIO DE DIMENSIONAMENTO TÉCNICO HVAC
 -------------------------------------------
@@ -184,6 +213,9 @@ Data: ${new Date().toLocaleDateString('pt-BR')}
 Ambiente: ${data.type.toUpperCase()}
 Área: ${data.area} m² | Pé-direito: ${data.height} m
 Orientação: ${data.orientation}
+
+EQUIPAMENTOS SELECIONADOS
+${equipmentsText}
 
 CARGA TÉRMICA CALCULADA
 Total: ${formatBTU(result.totalBTU)} (${formatKW(result.totalBTU)})
@@ -316,23 +348,48 @@ Gerado por HVAC Master
               </div>
             </section>
             <section>
-              <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Equipamento Selecionado</h2>
-              <div className="space-y-1 text-sm">
-                <p><span className="font-semibold">Marca/Modelo:</span> {data.equipmentSelection?.brand || '-'} / {data.equipmentSelection?.model || '-'}</p>
-                <p><span className="font-semibold">Tensão:</span> {data.equipmentSelection?.voltage || '-'}</p>
-                <p><span className="font-semibold">Capacidade:</span> {data.equipmentSelection?.capacity ? formatBTU(data.equipmentSelection.capacity) : '-'}</p>
-                <div className={cn(
-                  "mt-2 p-2 rounded text-[10px] font-bold uppercase border",
-                  !data.equipmentSelection?.capacity ? "hidden" :
-                  data.equipmentSelection.capacity < result.totalBTU * 0.9 ? "bg-red-50 border-red-200 text-red-700" :
-                  data.equipmentSelection.capacity > result.totalBTU * 1.3 ? "bg-yellow-50 border-yellow-200 text-yellow-700" :
-                  "bg-green-50 border-green-200 text-green-700"
-                )}>
-                  {!data.equipmentSelection?.capacity ? "" :
-                   data.equipmentSelection.capacity < result.totalBTU * 0.9 ? "Subdimensionado" :
-                   data.equipmentSelection.capacity > result.totalBTU * 1.3 ? "Sobredimensionado" :
-                   "Dimensionamento Correto"}
-                </div>
+              <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Equipamentos Selecionados</h2>
+              <div className="space-y-3">
+                {data.selectedEquipments?.map((eq, idx) => (
+                  <div key={idx} className="text-sm border-b border-gray-100 pb-2 last:border-0">
+                    <p className="font-semibold">{eq.quantity}x {eq.brand} - {eq.model}</p>
+                    <p className="text-gray-600 text-xs">{formatBTU(eq.capacity)} • {eq.voltage}</p>
+                    {(eq.numFases || eq.pipeType) && (
+                      <p className="text-gray-500 text-[10px] mt-1">
+                        {eq.numFases && `Fases: ${eq.numFases}`}
+                        {eq.numFases && eq.pipeType && ' | '}
+                        {eq.pipeType && `Tubulação: ${eq.pipeType}`}
+                      </p>
+                    )}
+                    {eq.notes && (
+                      <p className="text-gray-400 text-[10px] mt-1 italic">
+                        Obs: {eq.notes}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {(!data.selectedEquipments || data.selectedEquipments.length === 0) && (
+                  <p className="text-sm text-gray-400 italic">Nenhum equipamento selecionado.</p>
+                )}
+                
+                {data.selectedEquipments && data.selectedEquipments.length > 0 && (
+                  <div className={cn(
+                    "mt-2 p-2 rounded text-[10px] font-bold uppercase border",
+                    (() => {
+                      const totalCap = data.selectedEquipments.reduce((acc, eq) => acc + (eq.capacity * eq.quantity), 0);
+                      if (totalCap < result.totalBTU * 0.9) return "bg-red-50 border-red-200 text-red-700";
+                      if (totalCap > result.totalBTU * 1.3) return "bg-yellow-50 border-yellow-200 text-yellow-700";
+                      return "bg-green-50 border-green-200 text-green-700";
+                    })()
+                  )}>
+                    {(() => {
+                      const totalCap = data.selectedEquipments.reduce((acc, eq) => acc + (eq.capacity * eq.quantity), 0);
+                      if (totalCap < result.totalBTU * 0.9) return "Subdimensionado";
+                      if (totalCap > result.totalBTU * 1.3) return "Sobredimensionado";
+                      return "Dimensionamento Correto";
+                    })()}
+                  </div>
+                )}
               </div>
             </section>
           </div>
@@ -648,125 +705,264 @@ Gerado por HVAC Master
             </div>
           </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="flex flex-col gap-2">
-          <label className="text-sm text-gray-400">Marca do Equipamento</label>
-          <input 
-            type="text" 
-            className="hvac-input" 
-            list="brands"
-            value={data.equipmentSelection?.brand}
-            onChange={e => setData({...data, equipmentSelection: {...data.equipmentSelection!, brand: e.target.value}})}
-            placeholder="Ex: LG, Samsung, Daikin"
-          />
-          <datalist id="brands">
-            <option value="LG" />
-            <option value="Samsung" />
-            <option value="Daikin" />
-            <option value="Carrier" />
-            <option value="Gree" />
-            <option value="Midea" />
-            <option value="Fujitsu" />
-            <option value="Elgin" />
-            <option value="Springer" />
-            <option value="Consul" />
-          </datalist>
-        </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-sm text-gray-400">Modelo</label>
-          <input 
-            type="text" 
-            className="hvac-input" 
-            list="models"
-            value={data.equipmentSelection?.model}
-            onChange={e => setData({...data, equipmentSelection: {...data.equipmentSelection!, model: e.target.value}})}
-            placeholder="Ex: S4-Q12JA3A"
-          />
-          <datalist id="models">
-            <option value="Hi-Wall Inverter" />
-            <option value="Hi-Wall On/Off" />
-            <option value="Cassete Inverter" />
-            <option value="Piso Teto" />
-            <option value="Multi Split" />
-            <option value="Duto / Central" />
-          </datalist>
-        </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-sm text-gray-400">Tensão (V)</label>
-          <select 
-            className="hvac-input"
-            value={data.equipmentSelection?.voltage}
-            onChange={e => setData({...data, equipmentSelection: {...data.equipmentSelection!, voltage: e.target.value}})}
-          >
-            <option value="110V">110V</option>
-            <option value="220V">220V</option>
-            <option value="380V">380V</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-sm text-gray-400">Capacidade Nominal (BTU/h)</label>
-          <div className="flex gap-2">
-            <select 
-              className="hvac-input flex-1"
-              value={[7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000].includes(data.equipmentSelection?.capacity || 0) ? (data.equipmentSelection?.capacity || '') : 'custom'}
-              onChange={e => {
-                const val = e.target.value;
-                if (val === 'custom') {
-                  setData({...data, equipmentSelection: {...data.equipmentSelection!, capacity: 0}});
-                } else {
-                  setData({...data, equipmentSelection: {...data.equipmentSelection!, capacity: Number(val)}});
-                }
-              }}
-            >
-              <option value="">Selecionar...</option>
-              {[7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000].map(cap => (
-                <option key={cap} value={cap}>{cap} BTU/h</option>
-              ))}
-              <option value="custom">Outra (Digitar)...</option>
-            </select>
-            {(data.equipmentSelection?.capacity === 0 || !data.equipmentSelection?.capacity) && (
+      <div className="space-y-6">
+        <h3 className="text-lg font-bold text-green-500 uppercase flex items-center gap-2">
+          <Calculator className="w-5 h-5" /> Seleção de Equipamentos do Projeto
+        </h3>
+        
+        {data.selectedEquipments?.map((eq, idx) => (
+          <div key={idx} className="bg-black/40 p-4 rounded-xl border border-[#333333] relative animate-in fade-in slide-in-from-left-4">
+            {data.selectedEquipments!.length > 1 && (
               <button 
                 onClick={() => {
-                  const standardCapacities = [7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000];
-                  const suggested = standardCapacities.find(c => c >= result.totalBTU) || 60000;
-                  setData({...data, equipmentSelection: {...data.equipmentSelection!, capacity: suggested}});
+                  const newList = [...data.selectedEquipments!];
+                  newList.splice(idx, 1);
+                  setData({...data, selectedEquipments: newList});
                 }}
-                className="text-[10px] bg-green-600/20 text-green-500 px-2 rounded hover:bg-green-600/30 transition-colors"
+                className="absolute top-4 right-4 text-red-500 hover:text-red-400 p-1"
+                title="Remover Equipamento"
               >
-                Sugerir
+                <Trash className="w-4 h-4" />
               </button>
             )}
-          </div>
-          {(![7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000].includes(data.equipmentSelection?.capacity || 0) || data.equipmentSelection?.capacity === 0) && (
-             <input 
-              type="number" 
-              className="hvac-input mt-2" 
-              placeholder="Digite a capacidade em BTU/h"
-              value={data.equipmentSelection?.capacity || ''}
-              onChange={e => setData({...data, equipmentSelection: {...data.equipmentSelection!, capacity: Number(e.target.value)}})}
-            />
-          )}
-        </div>
-      </div>
-
-      {data.equipmentSelection?.capacity ? (
-        <div className={cn(
-          "mt-6 p-4 rounded-lg border flex items-center gap-3",
-          data.equipmentSelection.capacity < result.totalBTU * 0.9 ? "bg-red-900/20 border-red-900/50 text-red-500" :
-          data.equipmentSelection.capacity > result.totalBTU * 1.3 ? "bg-yellow-900/20 border-yellow-900/50 text-yellow-500" :
-          "bg-green-900/20 border-green-900/50 text-green-500"
-        )}>
-          <AlertTriangle className="w-6 h-6 shrink-0" />
-          <div>
-            <div className="font-bold uppercase text-xs">Análise de Dimensionamento</div>
-            <div className="text-sm">
-              {data.equipmentSelection.capacity < result.totalBTU * 0.9 ? "SUBDIMENSIONADO: O equipamento não suprirá a carga térmica necessária." :
-               data.equipmentSelection.capacity > result.totalBTU * 1.3 ? "SOBREDIMENSIONADO: Capacidade excessiva pode gerar consumo desnecessário e ciclos curtos." :
-               "DIMENSIONAMENTO CORRETO: O equipamento atende à carga térmica calculada."}
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-500 uppercase font-bold">Marca</label>
+                <input 
+                  type="text" 
+                  className="hvac-input" 
+                  list="brands"
+                  value={eq.brand}
+                  onChange={e => {
+                    const newList = [...data.selectedEquipments!];
+                    newList[idx].brand = e.target.value;
+                    setData({...data, selectedEquipments: newList});
+                  }}
+                  placeholder="Ex: LG, Samsung"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-500 uppercase font-bold">Modelo</label>
+                <input 
+                  type="text" 
+                  className="hvac-input" 
+                  list="models"
+                  value={eq.model}
+                  onChange={e => {
+                    const newList = [...data.selectedEquipments!];
+                    newList[idx].model = e.target.value;
+                    setData({...data, selectedEquipments: newList});
+                  }}
+                  placeholder="Ex: Hi-Wall Inverter"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-500 uppercase font-bold">Quantidade</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  className="hvac-input" 
+                  value={eq.quantity}
+                  onChange={e => {
+                    const newList = [...data.selectedEquipments!];
+                    newList[idx].quantity = Math.max(1, Number(e.target.value));
+                    setData({...data, selectedEquipments: newList});
+                  }}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-500 uppercase font-bold">Nº de Fases</label>
+                <input 
+                  type="text" 
+                  className="hvac-input" 
+                  list="fases-options"
+                  value={eq.numFases || ''}
+                  onChange={e => {
+                    const newList = [...data.selectedEquipments!];
+                    newList[idx].numFases = e.target.value;
+                    setData({...data, selectedEquipments: newList});
+                  }}
+                  placeholder="Ex: 3 fases"
+                />
+                <datalist id="fases-options">
+                  <option value="2 fases" />
+                  <option value="3 fases" />
+                  <option value="4 fases" />
+                  <option value="2 fases + Terra" />
+                  <option value="3 fases + Terra" />
+                  <option value="4 fases + Terra" />
+                </datalist>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-500 uppercase font-bold">Tipo de Tubulação</label>
+                <input 
+                  type="text" 
+                  className="hvac-input" 
+                  list="pipe-options"
+                  value={eq.pipeType || ''}
+                  onChange={e => {
+                    const newList = [...data.selectedEquipments!];
+                    newList[idx].pipeType = e.target.value;
+                    setData({...data, selectedEquipments: newList});
+                  }}
+                  placeholder="Ex: Cobre 3/8 e 5/8"
+                />
+                <datalist id="pipe-options">
+                  <option value="Cobre 1/4 e 3/8" />
+                  <option value="Cobre 1/4 e 1/2" />
+                  <option value="Cobre 3/8 e 5/8" />
+                  <option value="Cobre 3/8 e 3/4" />
+                  <option value="Cobre 1/2 e 3/4" />
+                  <option value="Alumínio" />
+                </datalist>
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-3">
+                <label className="text-xs text-gray-500 uppercase font-bold">Observações do Equipamento</label>
+                <textarea 
+                  className="hvac-input min-h-[60px] py-2" 
+                  value={eq.notes || ''}
+                  onChange={e => {
+                    const newList = [...data.selectedEquipments!];
+                    newList[idx].notes = e.target.value;
+                    setData({...data, selectedEquipments: newList});
+                  }}
+                  placeholder="Ex: Instalar unidade externa em suporte de parede com amortecedores."
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-500 uppercase font-bold">Tensão (V)</label>
+                <select 
+                  className="hvac-input"
+                  value={eq.voltage}
+                  onChange={e => {
+                    const newList = [...data.selectedEquipments!];
+                    newList[idx].voltage = e.target.value;
+                    setData({...data, selectedEquipments: newList});
+                  }}
+                >
+                  <option value="110V">110V</option>
+                  <option value="220V">220V</option>
+                  <option value="380V">380V</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="text-xs text-gray-500 uppercase font-bold">Capacidade Nominal (BTU/h)</label>
+                <div className="flex gap-2">
+                  <select 
+                    className="hvac-input flex-1"
+                    value={[7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000].includes(eq.capacity) ? eq.capacity : 'custom'}
+                    onChange={e => {
+                      const val = e.target.value;
+                      const newList = [...data.selectedEquipments!];
+                      if (val === 'custom') {
+                        newList[idx].capacity = 0;
+                      } else {
+                        newList[idx].capacity = Number(val);
+                      }
+                      setData({...data, selectedEquipments: newList});
+                    }}
+                  >
+                    <option value="">Selecionar...</option>
+                    {[7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000].map(cap => (
+                      <option key={cap} value={cap}>{cap} BTU/h</option>
+                    ))}
+                    <option value="custom">Outra (Digitar)...</option>
+                  </select>
+                  {eq.capacity === 0 && (
+                    <button 
+                      onClick={() => {
+                        const standardCapacities = [7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000];
+                        const suggested = standardCapacities.find(c => c >= result.totalBTU) || 60000;
+                        const newList = [...data.selectedEquipments!];
+                        newList[idx].capacity = suggested;
+                        setData({...data, selectedEquipments: newList});
+                      }}
+                      className="text-[10px] bg-green-600/20 text-green-500 px-2 rounded hover:bg-green-600/30 transition-colors"
+                    >
+                      Sugerir
+                    </button>
+                  )}
+                </div>
+                {(![7000, 9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000].includes(eq.capacity) || eq.capacity === 0) && (
+                   <input 
+                    type="number" 
+                    className="hvac-input mt-2" 
+                    placeholder="Digite a capacidade em BTU/h"
+                    value={eq.capacity || ''}
+                    onChange={e => {
+                      const newList = [...data.selectedEquipments!];
+                      newList[idx].capacity = Number(e.target.value);
+                      setData({...data, selectedEquipments: newList});
+                    }}
+                  />
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ))}
+
+        <button 
+          onClick={() => {
+            setData({
+              ...data, 
+              selectedEquipments: [
+                ...data.selectedEquipments!, 
+                { brand: '', model: '', voltage: '220V', capacity: 0, quantity: 1 }
+              ]
+            });
+          }}
+          className="w-full py-3 border-2 border-dashed border-[#333333] rounded-xl text-gray-500 hover:border-green-600/50 hover:text-green-500 transition-all flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" /> Adicionar Outro Equipamento ao Projeto
+        </button>
+
+        <datalist id="brands">
+          <option value="LG" />
+          <option value="Samsung" />
+          <option value="Daikin" />
+          <option value="Carrier" />
+          <option value="Gree" />
+          <option value="Midea" />
+          <option value="Fujitsu" />
+          <option value="Elgin" />
+          <option value="Springer" />
+          <option value="Consul" />
+        </datalist>
+
+        <datalist id="models">
+          <option value="Hi-Wall Inverter" />
+          <option value="Hi-Wall On/Off" />
+          <option value="Cassete Inverter" />
+          <option value="Piso Teto" />
+          <option value="Multi Split" />
+          <option value="Duto / Central" />
+        </datalist>
+      </div>
+
+      {(() => {
+        const totalCap = data.selectedEquipments?.reduce((acc, eq) => acc + (eq.capacity * eq.quantity), 0) || 0;
+        if (totalCap === 0) return null;
+        
+        return (
+          <div className={cn(
+            "mt-6 p-4 rounded-lg border flex items-center gap-3",
+            totalCap < result.totalBTU * 0.9 ? "bg-red-900/20 border-red-900/50 text-red-500" :
+            totalCap > result.totalBTU * 1.3 ? "bg-yellow-900/20 border-yellow-900/50 text-yellow-500" :
+            "bg-green-900/20 border-green-900/50 text-green-500"
+          )}>
+            <AlertTriangle className="w-6 h-6 shrink-0" />
+            <div>
+              <div className="font-bold uppercase text-xs">Análise de Dimensionamento Combinado</div>
+              <div className="text-sm">
+                {totalCap < result.totalBTU * 0.9 ? `SUBDIMENSIONADO: A soma das capacidades (${formatBTU(totalCap)}) não supre a carga térmica necessária.` :
+                 totalCap > result.totalBTU * 1.3 ? `SOBREDIMENSIONADO: A soma das capacidades (${formatBTU(totalCap)}) é excessiva para este ambiente.` :
+                 `DIMENSIONAMENTO CORRETO: A soma das capacidades (${formatBTU(totalCap)}) atende à carga térmica calculada.`}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="flex flex-wrap gap-4 no-print mt-8">
             <button onClick={() => setView('report')} className="hvac-button flex items-center gap-2">

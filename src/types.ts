@@ -1,3 +1,14 @@
+export interface SelectedEquipment {
+  brand: string;
+  model: string;
+  voltage: string;
+  capacity: number;
+  quantity: number;
+  numFases?: string;
+  pipeType?: string;
+  notes?: string;
+}
+
 export interface CalculationData {
   type: 'residencial' | 'comercial' | 'escritorio' | 'loja';
   area: number;
@@ -11,13 +22,7 @@ export interface CalculationData {
   equipmentCount: number;
   lightingType: 'led' | 'fluorescente' | 'incandescente';
   lightingPower: number;
-  equipmentSelection?: {
-    brand: string;
-    model: string;
-    voltage: string;
-    capacity: number;
-    efficiency: string;
-  };
+  selectedEquipments?: SelectedEquipment[];
 }
 
 export interface CalculationResult {
