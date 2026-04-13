@@ -6,33 +6,129 @@
   --color-background: #000000;
   --color-surface: #111111;
   --color-border: #333333;
+
+  /* Force Hex palette for common colors to avoid oklch in Tailwind v4 */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+
+  --color-green-50: #f0fdf4;
+  --color-green-100: #dcfce7;
+  --color-green-200: #bbf7d0;
+  --color-green-500: #22c55e;
+  --color-green-600: #16a34a;
+  --color-green-700: #15803d;
+
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+
+  --color-red-50: #fef2f2;
+  --color-red-200: #fecaca;
+  --color-red-500: #ef4444;
+  --color-red-700: #b91c1c;
+
+  --color-yellow-50: #fefce8;
+  --color-yellow-200: #fef08a;
+  --color-yellow-700: #a16207;
 }
 
 @layer base {
   body {
-    @apply bg-black text-white antialiased;
+    background-color: #000000;
+    color: #ffffff;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 }
 
 .hvac-card {
-  @apply bg-[#111111] border border-[#333333] rounded-lg p-6 shadow-xl;
+  background-color: #111111;
+  border: 1px solid #333333;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
 .hvac-input {
-  @apply bg-black border border-[#333333] text-white rounded px-4 py-2 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all;
+  background-color: #000000;
+  border: 1px solid #333333;
+  color: #ffffff;
+  border-radius: 0.25rem;
+  padding: 0.5rem 1rem;
+  outline: none;
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.hvac-input:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 1px #22c55e;
 }
 
 .hvac-input-with-icon {
-  @apply bg-black border border-[#333333] text-white rounded pl-12 pr-4 py-2 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all;
+  background-color: #000000;
+  border: 1px solid #333333;
+  color: #ffffff;
+  border-radius: 0.25rem;
+  padding: 0.5rem 1rem 0.5rem 3rem;
+  outline: none;
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.hvac-input-with-icon:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 1px #22c55e;
 }
 
 .hvac-button {
-  @apply bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  background-color: #16a34a;
+  color: #ffffff;
+  font-weight: 700;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.hvac-button:hover {
+  background-color: #15803d;
+}
+
+.hvac-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .hvac-button-outline {
-  @apply border border-green-600 text-green-600 hover:bg-green-600 hover:text-white font-bold py-2 px-4 rounded transition-all;
+  border: 1px solid #16a34a;
+  color: #16a34a;
+  font-weight: 700;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.hvac-button-outline:hover {
+  background-color: #16a34a;
+  color: #ffffff;
 }
 
 /* Responsive Report Styles */
@@ -40,12 +136,62 @@
   width: 100%;
   max-width: 210mm;
   min-height: 297mm;
-  padding: 10mm;
+  padding: 15mm;
   margin: 5mm auto;
-  background: white;
-  color: black;
+  background: #ffffff !important;
+  color: #000000 !important;
   box-shadow: 0 0 10px rgba(0,0,0,0.5);
 }
+
+/* Aggressive PDF Export Fix: Force hex colors for ALL elements inside report to kill oklch */
+.report-container * {
+  --tw-ring-color: transparent !important;
+  --tw-ring-offset-color: transparent !important;
+  --tw-shadow-color: transparent !important;
+}
+
+.report-container .text-gray-400 { color: #9ca3af !important; }
+.report-container .text-gray-500 { color: #6b7280 !important; }
+.report-container .text-gray-600 { color: #4b5563 !important; }
+.report-container .text-gray-700 { color: #374151 !important; }
+.report-container .text-green-500 { color: #22c55e !important; }
+.report-container .text-green-600 { color: #16a34a !important; }
+.report-container .text-green-700 { color: #15803d !important; }
+.report-container .text-red-700 { color: #b91c1c !important; }
+.report-container .text-yellow-700 { color: #a16207 !important; }
+.report-container .text-black { color: #000000 !important; }
+.report-container .text-white { color: #ffffff !important; }
+.report-container .text-blue-500 { color: #3b82f6 !important; }
+.report-container .text-red-500 { color: #ef4444 !important; }
+.report-container .text-gray-900 { color: #111827 !important; }
+.report-container .text-gray-800 { color: #1f2937 !important; }
+.report-container .text-gray-300 { color: #d1d5db !important; }
+.report-container .text-gray-200 { color: #e5e7eb !important; }
+.report-container .text-gray-100 { color: #f3f4f6 !important; }
+
+.report-container .bg-gray-50 { background-color: #f9fafb !important; }
+.report-container .bg-gray-100 { background-color: #f3f4f6 !important; }
+.report-container .bg-white { background-color: #ffffff !important; }
+.report-container .bg-black { background-color: #000000 !important; }
+.report-container .bg-green-50 { background-color: #f0fdf4 !important; }
+.report-container .bg-green-100 { background-color: #dcfce7 !important; }
+.report-container .bg-red-50 { background-color: #fef2f2 !important; }
+.report-container .bg-yellow-50 { background-color: #fefce8 !important; }
+
+.report-container .border-gray-100 { border-color: #f3f4f6 !important; }
+.report-container .border-gray-200 { border-color: #e5e7eb !important; }
+.report-container .border-gray-300 { border-color: #d1d5db !important; }
+.report-container .border-gray-400 { border-color: #9ca3af !important; }
+.report-container .border-green-200 { border-color: #bbf7d0 !important; }
+.report-container .border-red-200 { border-color: #fecaca !important; }
+.report-container .border-yellow-200 { border-color: #fef08a !important; }
+
+.report-container .border-b { border-bottom-width: 1px !important; }
+.report-container .border-b-2 { border-bottom-width: 2px !important; }
+.report-container .border-black { border-color: #000000 !important; }
+.report-container .border-white { border-color: #ffffff !important; }
+.report-container .border { border-width: 1px !important; }
+.report-container .border-2 { border-width: 2px !important; }
 
 @media (max-width: 768px) {
   .report-container {

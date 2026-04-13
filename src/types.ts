@@ -9,6 +9,24 @@ export interface SelectedEquipment {
   notes?: string;
 }
 
+export interface InternalEquipment {
+  type: string;
+  power: number;
+  quantity: number;
+}
+
+export interface Opening {
+  width: number;
+  height: number;
+  type: 'janela_aberta' | 'vao_livre';
+}
+
+export interface Door {
+  width: number;
+  height: number;
+  frequency: 'baixa' | 'media' | 'alta';
+}
+
 export interface CalculationData {
   type: 'residencial' | 'comercial' | 'escritorio' | 'loja';
   area: number;
@@ -19,10 +37,23 @@ export interface CalculationData {
   glassType: 'simples' | 'duplo' | 'pelicula';
   glassPercentage: number;
   peopleCount: number;
-  equipmentCount: number;
+  equipmentCount: number; // Keep for legacy
+  internalEquipments?: InternalEquipment[];
   lightingType: 'led' | 'fluorescente' | 'incandescente';
   lightingPower: number;
   selectedEquipments?: SelectedEquipment[];
+  airRenewal?: {
+    enabled: boolean;
+    flowRate: number;
+    method: 'person' | 'area' | 'fixed';
+  };
+  usageHours: number;
+  peopleTurnover: 'baixa' | 'media' | 'alta';
+  insulationLevel: 'baixo' | 'medio' | 'alto';
+  floorType: 'terra' | 'laje' | 'isolado';
+  climateFactor: number;
+  openings?: Opening[];
+  doors?: Door[];
 }
 
 export interface CalculationResult {
@@ -42,6 +73,12 @@ export interface CalculationResult {
     glassGain: number;
     totalSensible: number;
     totalLatent: number;
+    renewalSensible?: number;
+    renewalLatent?: number;
+    openingsSensible?: number;
+    openingsLatent?: number;
+    doorsSensible?: number;
+    doorsLatent?: number;
   };
 }
 

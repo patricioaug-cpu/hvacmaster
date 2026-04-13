@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CalculationData, CalculationResult } from './types';
 import { formatBTU, formatKW, cn } from './lib/utils';
-import { Calculator, Sun, Users, Monitor, Lightbulb, ArrowRight, Save, Copy, Check, History, Trash2, Edit2, FileText, ChevronLeft, AlertTriangle, AlertCircle, Plus, Trash } from 'lucide-react';
+import { Calculator, Sun, Users, Monitor, Lightbulb, ArrowRight, Save, Copy, Check, History, Trash2, Edit2, FileText, ChevronLeft, AlertTriangle, AlertCircle, Plus, Trash, Map, DoorOpen, Download } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
 import { db } from './firebase';
 import { collection, addDoc, query, where, getDocs, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 export default function ThermalCalculator() {
   const { user } = useAuth();
@@ -16,6 +18,9 @@ export default function ThermalCalculator() {
   const [savedCalculations, setSavedCalculations] = useState<any[]>([]);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showClimateMap, setShowClimateMap] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
   
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -37,7 +42,22 @@ export default function ThermalCalculator() {
     lightingPower: 100,
     selectedEquipments: [
       { brand: '', model: '', voltage: '220V', capacity: 0, quantity: 1, numFases: '', pipeType: '', notes: '' }
-    ]
+    ],
+    internalEquipments: [
+      { type: 'Computador', power: 150, quantity: 1 }
+    ],
+    airRenewal: {
+      enabled: false,
+      flowRate: 27,
+      method: 'person'
+    },
+    usageHours: 8,
+    peopleTurnover: 'baixa',
+    insulationLevel: 'medio',
+    floorType: 'laje',
+    climateFactor: 1.0,
+    openings: [],
+    doors: []
   });
 
   const [result, setResult] = useState<CalculationResult | null>(null);
@@ -72,32 +92,81 @@ export default function ThermalCalculator() {
     const baseLoad = data.type === 'residencial' ? 100 : 150;
     let sensibleBase = data.area * baseLoad;
     
+    // Fator de isolamento
+    const insulationFactor = data.insulationLevel === 'baixo' ? 1.2 : data.insulationLevel === 'alto' ? 0.85 : 1.0;
+    sensibleBase *= insulationFactor;
+
     const orientFactor = data.orientation === 'N' || data.orientation === 'O' ? 1.2 : 1.0;
     sensibleBase *= orientFactor;
     
-    const peopleSensible = data.peopleCount * 70;
-    const peopleLatent = data.peopleCount * 55;
-    const equipLoad = data.equipmentCount * 150;
+    // Rotatividade de pessoas (aumenta carga latente e sensível por infiltração)
+    const turnoverFactor = data.peopleTurnover === 'alta' ? 1.3 : data.peopleTurnover === 'media' ? 1.15 : 1.0;
+    const peopleSensible = (data.peopleCount * 70) * turnoverFactor;
+    const peopleLatent = (data.peopleCount * 55) * turnoverFactor;
+    
+    const equipLoad = (data.internalEquipments || []).reduce((acc, eq) => acc + (eq.power * eq.quantity), 0);
     const lightFactor = data.lightingType === 'incandescente' ? 1.0 : data.lightingType === 'fluorescente' ? 0.8 : 0.5;
     const lightLoad = data.lightingPower * lightFactor;
     const glassGain = (data.area * (data.glassPercentage / 100)) * 250 * orientFactor;
     
-    const totalSensible = sensibleBase + peopleSensible + equipLoad + lightLoad + glassGain;
+    // Horas de uso (afeta a inércia térmica - uso curto exige pulldown mais rápido)
+    const usageFactor = data.usageHours < 4 ? 1.2 : data.usageHours > 12 ? 0.95 : 1.0;
+
+    const totalSensible = (sensibleBase + peopleSensible + equipLoad + lightLoad + glassGain) * usageFactor;
     const totalLatent = peopleLatent + (data.area * 10);
     
-    const totalW = totalSensible + totalLatent;
+    let renewalSensible = 0;
+    let renewalLatent = 0;
+    let renewalFlowTotal = 0;
+
+    if (data.airRenewal?.enabled) {
+      if (data.airRenewal.method === 'person') {
+        renewalFlowTotal = data.peopleCount * data.airRenewal.flowRate;
+      } else if (data.airRenewal.method === 'area') {
+        renewalFlowTotal = data.area * data.airRenewal.flowRate;
+      } else {
+        renewalFlowTotal = data.airRenewal.flowRate;
+      }
+
+      // Estimativa de carga térmica por renovação (Delta T = 11K, Delta W = 8g/kg)
+      renewalSensible = renewalFlowTotal * 3.7; // Watts
+      renewalLatent = renewalFlowTotal * 6.8; // Watts
+    }
+
+    let openingsSensible = 0;
+    let openingsLatent = 0;
+    (data.openings || []).forEach(op => {
+      const area = op.width * op.height;
+      const flow = area * 0.4; // 0.4 m/s velocity (NBR 16401-3)
+      openingsSensible += flow * 1.2 * 11 * 1000 / 3600; 
+      openingsLatent += flow * 3000 * 0.008 * 1000 / 3600;
+    });
+
+    let doorsSensible = 0;
+    let doorsLatent = 0;
+    (data.doors || []).forEach(door => {
+      const area = door.width * door.height;
+      let factor = 1.0;
+      if (door.frequency === 'media') factor = 2.8;
+      if (door.frequency === 'alta') factor = 6.5;
+      
+      doorsSensible += (area / 1.68) * 180 * factor;
+      doorsLatent += (area / 1.68) * 120 * factor;
+    });
+
+    const totalW = (totalSensible + totalLatent + renewalSensible + renewalLatent + openingsSensible + openingsLatent + doorsSensible + doorsLatent) * data.climateFactor;
     const totalBTU = totalW * 3.41214;
     const safetyMargin = 0.15;
     const finalBTU = totalBTU * (1 + safetyMargin);
     
     const recommendedRange = `${Math.floor(finalBTU / 1000) * 1000} - ${Math.ceil((finalBTU * 1.2) / 1000) * 1000} BTU/h`;
     
-    const justification = `Cálculo técnico baseado na NBR 16401. Foram considerados ganhos de calor por condução na envoltória (${data.wallType}), radiação solar direta na orientação ${data.orientation}, ocupação metabólica de ${data.peopleCount} pessoas e dissipação térmica de ${data.equipmentCount} equipamentos. Aplicada margem de segurança normativa de 15%.`;
+    const justification = `Cálculo técnico baseado na NBR 16401. Foram considerados ganhos de calor por condução na envoltória (${data.wallType}), nível de isolamento ${data.insulationLevel}, radiação solar direta na orientação ${data.orientation}, ocupação metabólica de ${data.peopleCount} pessoas com rotatividade ${data.peopleTurnover} e dissipação térmica de ${data.internalEquipments?.length || 0} tipos de equipamentos. Regime de uso de ${data.usageHours}h/dia.${data.airRenewal?.enabled ? ` Incluída renovação de ar de ${renewalFlowTotal} m³/h.` : ''}${data.openings?.length ? ` Consideradas ${data.openings.length} aberturas permanentes.` : ''}${data.doors?.length ? ` Consideradas perdas por ${data.doors.length} portas com fluxo de abertura.` : ''} Aplicado fator climático de ${data.climateFactor}x e margem de segurança normativa de 15%.`;
 
     const newResult: CalculationResult = {
       totalBTU: finalBTU,
-      sensibleBTU: totalSensible * 3.41214,
-      latentBTU: totalLatent * 3.41214,
+      sensibleBTU: (totalSensible + renewalSensible + openingsSensible + doorsSensible) * 3.41214,
+      latentBTU: (totalLatent + renewalLatent + openingsLatent + doorsLatent) * 3.41214,
       safetyMargin: 15,
       recommendedRange,
       justification,
@@ -111,6 +180,12 @@ export default function ThermalCalculator() {
         glassGain: glassGain * 3.41214,
         totalSensible: totalSensible * 3.41214,
         totalLatent: totalLatent * 3.41214,
+        renewalSensible: renewalSensible * 3.41214,
+        renewalLatent: renewalLatent * 3.41214,
+        openingsSensible: openingsSensible * 3.41214,
+        openingsLatent: openingsLatent * 3.41214,
+        doorsSensible: doorsSensible * 3.41214,
+        doorsLatent: doorsLatent * 3.41214,
       }
     };
 
@@ -172,6 +247,22 @@ export default function ThermalCalculator() {
         notes: ''
       }];
     }
+    if (!calculationData.airRenewal) {
+      calculationData.airRenewal = {
+        enabled: false,
+        flowRate: 27,
+        method: 'person'
+      };
+    }
+    if (calculationData.usageHours === undefined) calculationData.usageHours = 8;
+    if (calculationData.peopleTurnover === undefined) calculationData.peopleTurnover = 'baixa';
+    if (calculationData.insulationLevel === undefined) calculationData.insulationLevel = 'medio';
+    if (calculationData.floorType === undefined) calculationData.floorType = 'laje';
+    if (calculationData.internalEquipments === undefined) calculationData.internalEquipments = [];
+    if (calculationData.climateFactor === undefined) calculationData.climateFactor = 1.0;
+    if (calculationData.openings === undefined) calculationData.openings = [];
+    if (calculationData.doors === undefined) calculationData.doors = [];
+
     setData(calculationData);
     setResult(calc.result);
     setEditingId(calc.id);
@@ -194,6 +285,22 @@ export default function ThermalCalculator() {
         notes: ''
       }];
     }
+    if (!calculationData.airRenewal) {
+      calculationData.airRenewal = {
+        enabled: false,
+        flowRate: 27,
+        method: 'person'
+      };
+    }
+    if (calculationData.usageHours === undefined) calculationData.usageHours = 8;
+    if (calculationData.peopleTurnover === undefined) calculationData.peopleTurnover = 'baixa';
+    if (calculationData.insulationLevel === undefined) calculationData.insulationLevel = 'medio';
+    if (calculationData.floorType === undefined) calculationData.floorType = 'laje';
+    if (calculationData.internalEquipments === undefined) calculationData.internalEquipments = [];
+    if (calculationData.climateFactor === undefined) calculationData.climateFactor = 1.0;
+    if (calculationData.openings === undefined) calculationData.openings = [];
+    if (calculationData.doors === undefined) calculationData.doors = [];
+
     setData(calculationData);
     setResult(calc.result);
     setView('report');
@@ -206,6 +313,15 @@ export default function ThermalCalculator() {
       `- ${eq.quantity}x ${eq.brand} ${eq.model} (${formatBTU(eq.capacity)}) - ${eq.voltage}${eq.numFases ? ` | Fases: ${eq.numFases}` : ''}${eq.pipeType ? ` | Tubulação: ${eq.pipeType}` : ''}${eq.notes ? ` | Obs: ${eq.notes}` : ''}`
     ).join('\n') || 'Nenhum equipamento selecionado';
 
+    const internalEquipsText = data.internalEquipments?.map(eq =>
+      `- ${eq.type || 'Equipamento'}: ${eq.quantity}x ${eq.power}W`
+    ).join('\n') || 'Nenhum equipamento interno';
+
+    const openingsText = [
+      ...(data.openings || []).map((op, i) => `- Vão #${i+1}: ${op.width}x${op.height}m`),
+      ...(data.doors || []).map((d, i) => `- Porta #${i+1}: ${d.width}x${d.height}m (Freq: ${d.frequency})`)
+    ].join('\n') || 'Nenhuma abertura/porta registrada';
+
     const text = `
 RELATÓRIO DE DIMENSIONAMENTO TÉCNICO HVAC
 -------------------------------------------
@@ -213,6 +329,15 @@ Data: ${new Date().toLocaleDateString('pt-BR')}
 Ambiente: ${data.type.toUpperCase()}
 Área: ${data.area} m² | Pé-direito: ${data.height} m
 Orientação: ${data.orientation}
+Uso: ${data.usageHours}h/dia | Rotatividade: ${data.peopleTurnover}
+Isolamento: ${data.insulationLevel} | Piso: ${data.floorType}
+Fator Climático: ${data.climateFactor}x
+
+ABERTURAS E PORTAS (INFILTRAÇÃO)
+${openingsText}
+
+CARGAS INTERNAS (EQUIPAMENTOS)
+${internalEquipsText}
 
 EQUIPAMENTOS SELECIONADOS
 ${equipmentsText}
@@ -229,6 +354,10 @@ MEMÓRIA DE CÁLCULO (BTU/h)
 - Equipamentos: ${result.calculationMemory ? formatBTU(result.calculationMemory.equipLoad) : 'N/A'}
 - Iluminação: ${result.calculationMemory ? formatBTU(result.calculationMemory.lightLoad) : 'N/A'}
 - Ganhos por Vidros: ${result.calculationMemory ? formatBTU(result.calculationMemory.glassGain) : 'N/A'}
+- Renovação de Ar (Sensível): ${result.calculationMemory?.renewalSensible ? formatBTU(result.calculationMemory.renewalSensible) : '0 BTU/h'}
+- Renovação de Ar (Latente): ${result.calculationMemory?.renewalLatent ? formatBTU(result.calculationMemory.renewalLatent) : '0 BTU/h'}
+- Aberturas/Portas (Sensível): ${result.calculationMemory?.openingsSensible ? formatBTU(result.calculationMemory.openingsSensible + (result.calculationMemory.doorsSensible || 0)) : '0 BTU/h'}
+- Aberturas/Portas (Latente): ${result.calculationMemory?.openingsLatent ? formatBTU(result.calculationMemory.openingsLatent + (result.calculationMemory.doorsLatent || 0)) : '0 BTU/h'}
 
 RECOMENDAÇÃO
 Faixa sugerida: ${result.recommendedRange}
@@ -242,6 +371,49 @@ Gerado por HVAC Master
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const exportToPDF = () => {
+    if (!reportRef.current) return;
+    setExporting(true);
+
+    const element = reportRef.current;
+    
+    // Temporarily force a narrower width for the export to allow for PDF margins
+    const originalWidth = element.style.width;
+    const originalMaxWidth = element.style.maxWidth;
+    const originalPadding = element.style.padding;
+    
+    element.style.width = '190mm'; // 210mm (A4) - 20mm (margins)
+    element.style.maxWidth = 'none';
+    element.style.padding = '15mm'; // Internal padding
+
+    const opt = {
+      margin: 10, // 10mm margin on all sides of the PDF page
+      filename: `Relatorio_HVAC_${new Date().toISOString().split('T')[0]}.pdf`,
+      image: { type: 'jpeg' as const, quality: 0.98 },
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true, 
+        logging: false,
+        windowWidth: 718 // Adjusted for 190mm at 96 DPI
+      },
+      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+    };
+
+    html2pdf().set(opt).from(element).save().then(() => {
+      element.style.width = originalWidth;
+      element.style.maxWidth = originalMaxWidth;
+      element.style.padding = originalPadding;
+      setExporting(false);
+    }).catch((err: any) => {
+      element.style.width = originalWidth;
+      element.style.maxWidth = originalMaxWidth;
+      element.style.padding = originalPadding;
+      console.error('Erro ao gerar PDF:', err);
+      setExporting(false);
+      showNotification('Erro ao gerar PDF', 'error');
+    });
   };
 
   if (view === 'history') {
@@ -317,6 +489,14 @@ Gerado por HVAC Master
             <ChevronLeft className="w-5 h-5" /> Voltar ao Histórico
           </button>
           <div className="flex gap-3">
+            <button 
+              onClick={exportToPDF} 
+              disabled={exporting}
+              className="hvac-button-outline flex items-center gap-2"
+            >
+              {exporting ? <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
+              {exporting ? "Gerando..." : "Exportar PDF"}
+            </button>
             <button onClick={copyToClipboard} className="hvac-button flex items-center gap-2">
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? "Copiado!" : "Copiar Dados"}
@@ -324,7 +504,7 @@ Gerado por HVAC Master
           </div>
         </div>
 
-        <div className="report-container mx-auto">
+        <div className="report-container mx-auto" ref={reportRef}>
           <div className="flex justify-between items-start border-b-2 border-black pb-4 mb-8">
             <div>
               <h1 className="text-2xl font-black tracking-tighter">HVAC MASTER</h1>
@@ -345,6 +525,9 @@ Gerado por HVAC Master
                 <p><span className="font-semibold">Pé-direito:</span> {data.height} m</p>
                 <p><span className="font-semibold">Orientação:</span> {data.orientation}</p>
                 <p><span className="font-semibold">Envoltória:</span> {data.wallType} / {data.roofType}</p>
+                <p><span className="font-semibold">Isolamento:</span> {data.insulationLevel.toUpperCase()}</p>
+                <p><span className="font-semibold">Uso:</span> {data.usageHours}h/dia | Rotatividade: {data.peopleTurnover}</p>
+                <p><span className="font-semibold">Fator Climático:</span> {data.climateFactor}x</p>
               </div>
             </section>
             <section>
@@ -394,6 +577,41 @@ Gerado por HVAC Master
             </section>
           </div>
 
+          <section className="mb-8">
+            <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Cargas Térmicas Internas (Equipamentos)</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+              {(data.internalEquipments || []).map((eq, idx) => (
+                <div key={idx} className="text-sm flex justify-between border-b border-gray-100 pb-1">
+                  <span>{eq.type || 'Equipamento'} ({eq.quantity}x {eq.power}W):</span>
+                  <span className="font-mono">{eq.quantity * eq.power}W</span>
+                </div>
+              ))}
+              {(data.internalEquipments || []).length === 0 && (
+                <p className="text-sm text-gray-400 italic">Nenhum equipamento interno registrado.</p>
+              )}
+            </div>
+          </section>
+
+          {(data.openings?.length || 0) + (data.doors?.length || 0) > 0 && (
+            <section className="mb-8">
+              <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Aberturas e Portas (Infiltração)</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+                {data.openings?.map((op, idx) => (
+                  <div key={`op-${idx}`} className="text-sm flex justify-between border-b border-gray-100 pb-1">
+                    <span>Vão Livre #{idx + 1} ({op.width}x{op.height}m):</span>
+                    <span className="font-mono">{op.width * op.height} m²</span>
+                  </div>
+                ))}
+                {data.doors?.map((door, idx) => (
+                  <div key={`door-${idx}`} className="text-sm flex justify-between border-b border-gray-100 pb-1">
+                    <span>Porta #{idx + 1} ({door.width}x{door.height}m - Freq: {door.frequency}):</span>
+                    <span className="font-mono">{door.width * door.height} m²</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 mb-8">
             <section>
               <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Carga Térmica Total</h2>
@@ -403,9 +621,79 @@ Gerado por HVAC Master
                 <div className="text-xs text-gray-400 mt-1">Inclui margem de segurança de {result.safetyMargin}%</div>
               </div>
             </section>
+
+            <section>
+              <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Distribuição de Carga</h2>
+              <div className="h-[150px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'Sensível', value: result.sensibleBTU },
+                        { name: 'Latente', value: result.latentBTU }
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={40}
+                      outerRadius={60}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      <Cell fill="#3b82f6" />
+                      <Cell fill="#ef4444" />
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: number) => formatBTU(value)}
+                      contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '12px' }}
+                    />
+                    <Legend verticalAlign="middle" align="right" layout="vertical" wrapperStyle={{ fontSize: '12px' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
           </div>
 
           <section className="mb-8">
+            <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Análise Detalhada dos Ganhos</h2>
+            <div className="h-[280px] w-full bg-gray-50 p-4 rounded border border-gray-100 mb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[
+                    { name: 'Base', value: result.calculationMemory.baseLoad },
+                    { name: 'Vidros', value: result.calculationMemory.glassGain },
+                    { name: 'Pessoas', value: result.calculationMemory.peopleSensible + result.calculationMemory.peopleLatent },
+                    { name: 'Equip.', value: result.calculationMemory.equipLoad },
+                    { name: 'Ilum.', value: result.calculationMemory.lightLoad },
+                    { name: 'Renov.', value: (result.calculationMemory.renewalSensible || 0) + (result.calculationMemory.renewalLatent || 0) },
+                    { name: 'Infilt.', value: (result.calculationMemory.openingsSensible || 0) + (result.calculationMemory.openingsLatent || 0) + (result.calculationMemory.doorsSensible || 0) + (result.calculationMemory.doorsLatent || 0) },
+                  ].filter(d => d.value > 0)}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 40 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 9, fill: '#6b7280', angle: -45, textAnchor: 'end' }}
+                    interval={0}
+                    height={60}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fill: '#6b7280' }}
+                    tickFormatter={(value) => `${Math.round(value/1000)}k`}
+                  />
+                  <Tooltip 
+                    formatter={(value: number) => [formatBTU(value), 'Carga']}
+                    contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '12px' }}
+                    cursor={{ fill: '#f3f4f6' }}
+                  />
+                  <Bar dataKey="value" fill="#10b981" radius={[4, 4, 0, 0]} barSize={30} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
             <h2 className="text-sm font-bold border-b border-gray-300 mb-3 uppercase">Memória de Cálculo Detalhada</h2>
             {result.calculationMemory ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
@@ -433,6 +721,30 @@ Gerado por HVAC Master
                   <span>Iluminação Artificial:</span>
                   <span className="font-mono">{formatBTU(result.calculationMemory.lightLoad)}</span>
                 </div>
+                {result.calculationMemory.renewalSensible && result.calculationMemory.renewalSensible > 0 && (
+                  <div className="flex justify-between border-b border-gray-100 py-1">
+                    <span>Renovação de Ar (Sensível):</span>
+                    <span className="font-mono">{formatBTU(result.calculationMemory.renewalSensible)}</span>
+                  </div>
+                )}
+                {result.calculationMemory.renewalLatent && result.calculationMemory.renewalLatent > 0 && (
+                  <div className="flex justify-between border-b border-gray-100 py-1">
+                    <span>Renovação de Ar (Latente):</span>
+                    <span className="font-mono">{formatBTU(result.calculationMemory.renewalLatent)}</span>
+                  </div>
+                )}
+                {((result.calculationMemory.openingsSensible || 0) + (result.calculationMemory.doorsSensible || 0)) > 0 && (
+                  <div className="flex justify-between border-b border-gray-100 py-1">
+                    <span>Infiltração Vãos/Portas (Sensível):</span>
+                    <span className="font-mono">{formatBTU((result.calculationMemory.openingsSensible || 0) + (result.calculationMemory.doorsSensible || 0))}</span>
+                  </div>
+                )}
+                {((result.calculationMemory.openingsLatent || 0) + (result.calculationMemory.doorsLatent || 0)) > 0 && (
+                  <div className="flex justify-between border-b border-gray-100 py-1">
+                    <span>Infiltração Vãos/Portas (Latente):</span>
+                    <span className="font-mono">{formatBTU((result.calculationMemory.openingsLatent || 0) + (result.calculationMemory.doorsLatent || 0))}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold pt-2 text-green-700">
                   <span>TOTAL SENSÍVEL:</span>
                   <span className="font-mono">{formatBTU(result.calculationMemory.totalSensible)}</span>
@@ -530,6 +842,78 @@ Gerado por HVAC Master
                 onChange={e => setData({...data, height: Number(e.target.value)})}
               />
             </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm text-gray-400">Horas de Uso por Dia</label>
+              <input 
+                type="number" 
+                min="1"
+                max="24"
+                className="hvac-input" 
+                value={data.usageHours}
+                onChange={e => setData({...data, usageHours: Number(e.target.value)})}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm text-gray-400 flex items-center justify-between">
+                Fator Climático (Região)
+                <button 
+                  onClick={() => setShowClimateMap(!showClimateMap)}
+                  className="text-[10px] text-green-500 hover:underline flex items-center gap-1"
+                >
+                  <Map className="w-3 h-3" /> {showClimateMap ? 'Ocultar Mapa' : 'Ver Mapa'}
+                </button>
+              </label>
+              <select 
+                className="hvac-input"
+                value={data.climateFactor}
+                onChange={e => setData({...data, climateFactor: Number(e.target.value)})}
+              >
+                <option value={1.0}>1.0 - Temperado (Sul/Sudeste)</option>
+                <option value={1.1}>1.1 - Quente (Centro-Oeste/Nordeste)</option>
+                <option value={1.2}>1.2 - Muito Quente (Norte/Litoral)</option>
+              </select>
+            </div>
+            
+            {showClimateMap && (
+              <div className="md:col-span-2 bg-white/5 p-4 rounded-lg border border-white/10 animate-in zoom-in-95">
+                <div className="flex flex-col md:flex-row gap-6 items-center">
+                  <div className="w-full md:w-1/2">
+                    <svg viewBox="0 0 500 500" className="w-full h-auto drop-shadow-lg">
+                      {/* Brazil Outline */}
+                      <path d="M160,20 Q200,0 250,20 T350,40 Q400,60 440,120 T460,240 Q440,300 380,360 T280,480 Q240,500 200,460 T100,320 Q60,260 40,200 T100,80 T160,20 Z" fill="#1a1a1a" stroke="#333" strokeWidth="2" />
+                      
+                      {/* Norte - 1.2 */}
+                      <path d="M160,20 Q200,0 250,20 T350,40 L350,180 L80,180 Q60,140 100,80 T160,20 Z" fill="#ef4444" opacity="0.6" />
+                      <text x="160" y="110" fill="white" fontSize="22" fontWeight="bold">NORTE (1.2)</text>
+                      
+                      {/* Nordeste - 1.1 */}
+                      <path d="M350,40 Q400,60 440,120 T460,240 L330,240 L350,40 Z" fill="#f59e0b" opacity="0.6" />
+                      <text x="360" y="160" fill="white" fontSize="16" fontWeight="bold">NE (1.1)</text>
+                      
+                      {/* Centro-Oeste - 1.1 */}
+                      <path d="M80,180 L350,180 L330,300 L150,300 L80,180 Z" fill="#f59e0b" opacity="0.6" />
+                      <text x="180" y="250" fill="white" fontSize="16" fontWeight="bold">CO (1.1)</text>
+                      
+                      {/* Sudeste - 1.0 */}
+                      <path d="M330,240 T460,240 Q440,300 380,360 L280,360 L330,240 Z" fill="#10b981" opacity="0.6" />
+                      <text x="330" y="310" fill="white" fontSize="16" fontWeight="bold">SE (1.0)</text>
+                      
+                      {/* Sul - 1.0 */}
+                      <path d="M150,300 L330,300 L280,360 T280,480 Q240,500 200,460 T150,300 Z" fill="#10b981" opacity="0.6" />
+                      <text x="200" y="410" fill="white" fontSize="16" fontWeight="bold">SUL (1.0)</text>
+                    </svg>
+                  </div>
+                  <div className="w-full md:w-1/2 space-y-4">
+                    <h3 className="text-sm font-bold text-green-500 uppercase">Guia de Regiões (NBR 16401)</h3>
+                    <div className="space-y-2 text-xs text-gray-400">
+                      <p><strong className="text-white">Fator 1.2:</strong> Região Norte e Litoral do Nordeste. Clima equatorial/tropical úmido com altas temperaturas constantes.</p>
+                      <p><strong className="text-white">Fator 1.1:</strong> Centro-Oeste, Interior do Nordeste e Norte de Minas. Clima tropical com estações bem definidas e picos de calor.</p>
+                      <p><strong className="text-white">Fator 1.0:</strong> Sul, Sudeste (exceto Norte de MG) e áreas serranas. Clima temperado/subtropical com variações sazonais maiores.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <div className="mt-8 flex justify-end">
             <button onClick={() => setStep(2)} className="hvac-button flex items-center gap-2">
@@ -586,6 +970,126 @@ Gerado por HVAC Master
                 <option value="pelicula">Com Película Térmica</option>
               </select>
             </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm text-gray-400">Nível de Isolamento Geral</label>
+              <select className="hvac-input" value={data.insulationLevel} onChange={e => setData({...data, insulationLevel: e.target.value as any})}>
+                <option value="baixo">Baixo (Muitas frestas/Sem isolamento)</option>
+                <option value="medio">Médio (Padrão)</option>
+                <option value="alto">Alto (Construção Térmica/Hermético)</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm text-gray-400">Tipo de Piso</label>
+              <select className="hvac-input" value={data.floorType} onChange={e => setData({...data, floorType: e.target.value as any})}>
+                <option value="terra">Contato com o Solo</option>
+                <option value="laje">Laje (Andar Intermediário)</option>
+                <option value="isolado">Piso Isolado</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-2 border-t border-[#333333] pt-6 mt-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                <h3 className="text-sm font-bold text-gray-300 uppercase flex items-center gap-2">
+                  <DoorOpen className="w-4 h-4 text-green-500" /> Aberturas e Portas (NBR 16401)
+                </h3>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setData({...data, openings: [...(data.openings || []), { width: 1.0, height: 1.0, type: 'vao_livre' }]})}
+                    className="text-[10px] bg-green-600/20 text-green-500 px-2 py-1 rounded hover:bg-green-600/30 transition-all"
+                  >
+                    + Vão Livre
+                  </button>
+                  <button 
+                    onClick={() => setData({...data, doors: [...(data.doors || []), { width: 0.8, height: 2.1, frequency: 'baixa' }]})}
+                    className="text-[10px] bg-blue-600/20 text-blue-500 px-2 py-1 rounded hover:bg-blue-600/30 transition-all"
+                  >
+                    + Porta
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Openings List */}
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-bold text-gray-500 uppercase">Vãos e Aberturas Permanentes</h4>
+                  {(data.openings || []).map((op, idx) => (
+                    <div key={idx} className="bg-white/5 p-3 rounded border border-white/5 flex flex-col gap-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-green-500">VÃO #{idx + 1}</span>
+                        <button onClick={() => setData({...data, openings: data.openings?.filter((_, i) => i !== idx)})} className="text-red-500 hover:text-red-400">
+                          <Trash className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[9px] text-gray-500 uppercase">Largura (m)</label>
+                          <input type="number" step="0.1" className="hvac-input py-1 text-xs" value={op.width} onChange={e => {
+                            const newList = [...(data.openings || [])];
+                            newList[idx].width = Number(e.target.value);
+                            setData({...data, openings: newList});
+                          }} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[9px] text-gray-500 uppercase">Altura (m)</label>
+                          <input type="number" step="0.1" className="hvac-input py-1 text-xs" value={op.height} onChange={e => {
+                            const newList = [...(data.openings || [])];
+                            newList[idx].height = Number(e.target.value);
+                            setData({...data, openings: newList});
+                          }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {(data.openings || []).length === 0 && <p className="text-[10px] text-gray-600 italic">Nenhum vão livre registrado.</p>}
+                </div>
+
+                {/* Doors List */}
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-bold text-gray-500 uppercase">Portas com Fluxo de Abertura</h4>
+                  {(data.doors || []).map((door, idx) => (
+                    <div key={idx} className="bg-white/5 p-3 rounded border border-white/5 flex flex-col gap-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-blue-500">PORTA #{idx + 1}</span>
+                        <button onClick={() => setData({...data, doors: data.doors?.filter((_, i) => i !== idx)})} className="text-red-500 hover:text-red-400">
+                          <Trash className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[9px] text-gray-500 uppercase">Larg. (m)</label>
+                          <input type="number" step="0.1" className="hvac-input py-1 text-xs" value={door.width} onChange={e => {
+                            const newList = [...(data.doors || [])];
+                            newList[idx].width = Number(e.target.value);
+                            setData({...data, doors: newList});
+                          }} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[9px] text-gray-500 uppercase">Alt. (m)</label>
+                          <input type="number" step="0.1" className="hvac-input py-1 text-xs" value={door.height} onChange={e => {
+                            const newList = [...(data.doors || [])];
+                            newList[idx].height = Number(e.target.value);
+                            setData({...data, doors: newList});
+                          }} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[9px] text-gray-500 uppercase">Freq.</label>
+                          <select className="hvac-input py-1 text-xs" value={door.frequency} onChange={e => {
+                            const newList = [...(data.doors || [])];
+                            newList[idx].frequency = e.target.value as any;
+                            setData({...data, doors: newList});
+                          }}>
+                            <option value="baixa">Baixa</option>
+                            <option value="media">Média</option>
+                            <option value="alta">Alta</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {(data.doors || []).length === 0 && <p className="text-[10px] text-gray-600 italic">Nenhuma porta registrada.</p>}
+                </div>
+              </div>
+            </div>
           </div>
           <div className="mt-8 flex justify-between">
             <button onClick={() => setStep(1)} className="hvac-button-outline flex items-center gap-2">
@@ -610,9 +1114,90 @@ Gerado por HVAC Master
               <input type="number" className="hvac-input" value={data.peopleCount} onChange={e => setData({...data, peopleCount: Number(e.target.value)})} />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-sm text-gray-400 flex items-center gap-2"><Monitor className="w-4 h-4" /> Equipamentos (PCs, etc)</label>
-              <input type="number" className="hvac-input" value={data.equipmentCount} onChange={e => setData({...data, equipmentCount: Number(e.target.value)})} />
+              <label className="text-sm text-gray-400">Rotatividade de Pessoas</label>
+              <select className="hvac-input" value={data.peopleTurnover} onChange={e => setData({...data, peopleTurnover: e.target.value as any})}>
+                <option value="baixa">Baixa (Permanência longa)</option>
+                <option value="media">Média (Entra e sai moderado)</option>
+                <option value="alta">Alta (Fluxo constante/Portas abrindo)</option>
+              </select>
             </div>
+
+            <div className="flex flex-col gap-4 md:col-span-2 border-t border-[#333333] pt-6 mt-2">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-bold text-gray-300 flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-blue-500" /> Equipamentos Eletrônicos
+                </label>
+                <button 
+                  onClick={() => setData({
+                    ...data, 
+                    internalEquipments: [...(data.internalEquipments || []), { type: '', power: 150, quantity: 1 }]
+                  })}
+                  className="text-xs bg-blue-600/20 text-blue-500 px-2 py-1 rounded hover:bg-blue-600/30 transition-all flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Adicionar
+                </button>
+              </div>
+              
+              <div className="space-y-3">
+                {(data.internalEquipments || []).map((eq, idx) => (
+                  <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end bg-white/5 p-3 rounded border border-white/5">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-gray-500 uppercase">Tipo</label>
+                      <input 
+                        type="text" 
+                        className="hvac-input py-1 text-sm" 
+                        placeholder="Ex: Computador"
+                        value={eq.type}
+                        onChange={e => {
+                          const newList = [...(data.internalEquipments || [])];
+                          newList[idx].type = e.target.value;
+                          setData({...data, internalEquipments: newList});
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-gray-500 uppercase">Potência (W)</label>
+                      <input 
+                        type="number" 
+                        className="hvac-input py-1 text-sm" 
+                        value={eq.power}
+                        onChange={e => {
+                          const newList = [...(data.internalEquipments || [])];
+                          newList[idx].power = Number(e.target.value);
+                          setData({...data, internalEquipments: newList});
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-gray-500 uppercase">Qtd</label>
+                      <input 
+                        type="number" 
+                        className="hvac-input py-1 text-sm" 
+                        value={eq.quantity}
+                        onChange={e => {
+                          const newList = [...(data.internalEquipments || [])];
+                          newList[idx].quantity = Number(e.target.value);
+                          setData({...data, internalEquipments: newList});
+                        }}
+                      />
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const newList = (data.internalEquipments || []).filter((_, i) => i !== idx);
+                        setData({...data, internalEquipments: newList});
+                      }}
+                      className="p-2 text-red-500 hover:bg-red-500/10 rounded transition-all"
+                    >
+                      <Trash className="w-4 h-4 mx-auto" />
+                    </button>
+                  </div>
+                ))}
+                {(data.internalEquipments || []).length === 0 && (
+                  <p className="text-xs text-gray-500 italic text-center py-2">Nenhum equipamento adicionado.</p>
+                )}
+              </div>
+            </div>
+
             <div className="flex flex-col gap-2">
               <label className="text-sm text-gray-400 flex items-center gap-2"><Lightbulb className="w-4 h-4" /> Tipo de Iluminação</label>
               <select className="hvac-input" value={data.lightingType} onChange={e => setData({...data, lightingType: e.target.value as any})}>
@@ -624,6 +1209,58 @@ Gerado por HVAC Master
             <div className="flex flex-col gap-2">
               <label className="text-sm text-gray-400">Potência Iluminação (W)</label>
               <input type="number" className="hvac-input" value={data.lightingPower} onChange={e => setData({...data, lightingPower: Number(e.target.value)})} />
+            </div>
+
+            <div className="flex flex-col gap-2 md:col-span-2 border-t border-[#333333] pt-6 mt-2">
+              <div className="flex items-center justify-between mb-4">
+                <label className="text-sm font-bold text-gray-300 flex items-center gap-2">
+                  <Sun className="w-4 h-4 text-yellow-500" /> Renovação de Ar (NBR 16401)
+                </label>
+                <button 
+                  onClick={() => setData({...data, airRenewal: {
+                    enabled: !data.airRenewal?.enabled,
+                    flowRate: data.airRenewal?.flowRate || 27,
+                    method: data.airRenewal?.method || 'person'
+                  }})}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none",
+                    data.airRenewal?.enabled ? "bg-green-600" : "bg-gray-700"
+                  )}
+                >
+                  <span className={cn(
+                    "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                    data.airRenewal?.enabled ? "translate-x-6" : "translate-x-1"
+                  )} />
+                </button>
+              </div>
+              
+              {data.airRenewal?.enabled && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-gray-500 uppercase">Método de Cálculo</label>
+                    <select 
+                      className="hvac-input"
+                      value={data.airRenewal.method}
+                      onChange={e => setData({...data, airRenewal: {...data.airRenewal!, method: e.target.value as any}})}
+                    >
+                      <option value="person">Por Pessoa (m³/h/pessoa)</option>
+                      <option value="area">Por Área (m³/h/m²)</option>
+                      <option value="fixed">Vazão Fixa (m³/h)</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-gray-500 uppercase">
+                      {data.airRenewal.method === 'person' ? 'Vazão por Pessoa' : data.airRenewal.method === 'area' ? 'Vazão por Área' : 'Vazão Total'}
+                    </label>
+                    <input 
+                      type="number" 
+                      className="hvac-input" 
+                      value={data.airRenewal.flowRate}
+                      onChange={e => setData({...data, airRenewal: {...data.airRenewal!, flowRate: Number(e.target.value)}})}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="mt-8 flex justify-between">
