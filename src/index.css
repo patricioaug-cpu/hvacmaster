@@ -203,7 +203,26 @@
 }
 
 @media print {
-  .no-print { display: none; }
-  body { background: white; }
-  .report-container { margin: 0; box-shadow: none; }
+  .no-print, nav, footer, .hvac-button, .hvac-button-outline { display: none !important; }
+  body { 
+    background: white !important; 
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .report-container { 
+    margin: 0 !important; 
+    padding: 15mm !important;
+    box-shadow: none !important;
+    width: 210mm !important;
+    max-width: none !important;
+    min-height: 297mm !important;
+    background: white !important;
+    color: black !important;
+    page-break-after: always;
+  }
+  @page {
+    size: A4;
+    margin: 0;
+  }
 }

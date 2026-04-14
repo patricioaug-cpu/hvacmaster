@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CalculationData, CalculationResult } from './types';
 import { formatBTU, formatKW, cn } from './lib/utils';
-import { Calculator, Sun, Users, Monitor, Lightbulb, ArrowRight, Save, Copy, Check, History, Trash2, Edit2, FileText, ChevronLeft, AlertTriangle, AlertCircle, Plus, Trash, Map, DoorOpen, Download } from 'lucide-react';
+import { Calculator, Sun, Users, Monitor, Lightbulb, ArrowRight, Save, Copy, Check, History, Trash2, Edit2, FileText, ChevronLeft, AlertTriangle, AlertCircle, Plus, Trash, Map, DoorOpen, Download, Printer } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import { db } from './firebase';
 import { collection, addDoc, query, where, getDocs, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
@@ -416,6 +416,10 @@ Gerado por HVAC Master
     });
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   if (view === 'history') {
     return (
       <div className="max-w-4xl mx-auto p-4 animate-in fade-in">
@@ -488,7 +492,14 @@ Gerado por HVAC Master
           <button onClick={() => setView('history')} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
             <ChevronLeft className="w-5 h-5" /> Voltar ao Histórico
           </button>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button 
+              onClick={handlePrint}
+              className="hvac-button-outline flex items-center gap-2"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimir
+            </button>
             <button 
               onClick={exportToPDF} 
               disabled={exporting}
