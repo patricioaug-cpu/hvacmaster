@@ -389,16 +389,22 @@ Gerado por HVAC Master
     element.style.padding = '15mm'; // Internal padding
 
     const opt = {
-      margin: 10, // 10mm margin on all sides of the PDF page
+      margin: 10,
       filename: `Relatorio_HVAC_${new Date().toISOString().split('T')[0]}.pdf`,
-      image: { type: 'jpeg' as const, quality: 0.98 },
+      image: { type: 'jpeg' as const, quality: 0.90 },
       html2canvas: { 
-        scale: 2, 
+        scale: 1, // Reduced from 2 to 1 to prevent memory crashes on mobile/APK
         useCORS: true, 
         logging: false,
-        windowWidth: 718 // Adjusted for 190mm at 96 DPI
+        windowWidth: 718,
+        letterRendering: true
       },
-      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+      jsPDF: { 
+        unit: 'mm' as const, 
+        format: 'a4' as const, 
+        orientation: 'portrait' as const,
+        compress: true // Enable PDF compression
+      }
     };
 
     html2pdf().set(opt).from(element).save().then(() => {
@@ -412,12 +418,28 @@ Gerado por HVAC Master
       element.style.padding = originalPadding;
       console.error('Erro ao gerar PDF:', err);
       setExporting(false);
-      showNotification('Erro ao gerar PDF', 'error');
+      showNotification('Erro ao gerar PDF (Memória insuficiente?)', 'error');
     });
   };
 
   const handlePrint = () => {
-    window.print();
+    try {
+      // Focus window before printing - helps some WebViews
+      window.focus();
+      
+      // Small delay to ensure UI is ready
+      setTimeout(() => {
+        if (typeof window.print === 'function') {
+          window.print();
+        } else {
+          // Fallback for very limited WebViews
+          showNotification('Recurso de impressão não disponível neste dispositivo', 'error');
+        }
+      }, 250);
+    } catch (e) {
+      console.error('Print error:', e);
+      showNotification('Erro ao tentar imprimir', 'error');
+    }
   };
 
   if (view === 'history') {
