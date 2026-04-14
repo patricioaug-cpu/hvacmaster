@@ -514,26 +514,31 @@ Gerado por HVAC Master
           <button onClick={() => setView('history')} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
             <ChevronLeft className="w-5 h-5" /> Voltar ao Histórico
           </button>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button 
-              onClick={handlePrint}
-              className="hvac-button-outline flex items-center gap-2 text-sm"
-            >
-              <Printer className="w-4 h-4" />
-              Imprimir
-            </button>
-            <button 
-              onClick={exportToPDF} 
-              disabled={exporting}
-              className="hvac-button-outline flex items-center gap-2 text-sm"
-            >
-              {exporting ? <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
-              {exporting ? "Gerando..." : "Exportar PDF"}
-            </button>
-            <button onClick={copyToClipboard} className="hvac-button flex items-center gap-2 text-sm">
-              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copied ? "Copiado!" : "Copiar Texto"}
-            </button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <button 
+                onClick={handlePrint}
+                className="hvac-button-outline flex items-center gap-2 text-sm"
+              >
+                <Printer className="w-4 h-4" />
+                Imprimir
+              </button>
+              <button 
+                onClick={exportToPDF} 
+                disabled={exporting}
+                className="hvac-button-outline flex items-center gap-2 text-sm"
+              >
+                {exporting ? <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
+                {exporting ? "Gerando..." : "Exportar PDF"}
+              </button>
+              <button onClick={copyToClipboard} className="hvac-button flex items-center gap-2 text-sm">
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                {copied ? "Copiado!" : "Copiar Texto"}
+              </button>
+            </div>
+            <p className="text-[10px] text-yellow-500/80 font-medium text-right max-w-[250px] leading-tight">
+              Atenção: As opções de imprimir e exportar PDF funcionam apenas na versão web em: <a href="https://hvacmaster.vercel.app" target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-green-400 transition-colors">https://hvacmaster.vercel.app</a>
+            </p>
           </div>
         </div>
 
