@@ -510,14 +510,14 @@ Gerado por HVAC Master
   if (view === 'report' && result) {
     return (
       <div className="max-w-4xl mx-auto p-4 animate-in fade-in">
-        <div className="flex items-center justify-between mb-8 no-print">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 no-print gap-4">
           <button onClick={() => setView('history')} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
             <ChevronLeft className="w-5 h-5" /> Voltar ao Histórico
           </button>
           <div className="flex flex-wrap justify-end gap-2">
             <button 
               onClick={handlePrint}
-              className="hvac-button-outline flex items-center gap-2"
+              className="hvac-button-outline flex items-center gap-2 text-sm"
             >
               <Printer className="w-4 h-4" />
               Imprimir
@@ -525,14 +525,14 @@ Gerado por HVAC Master
             <button 
               onClick={exportToPDF} 
               disabled={exporting}
-              className="hvac-button-outline flex items-center gap-2"
+              className="hvac-button-outline flex items-center gap-2 text-sm"
             >
               {exporting ? <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
               {exporting ? "Gerando..." : "Exportar PDF"}
             </button>
-            <button onClick={copyToClipboard} className="hvac-button flex items-center gap-2">
+            <button onClick={copyToClipboard} className="hvac-button flex items-center gap-2 text-sm">
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copied ? "Copiado!" : "Copiar Dados"}
+              {copied ? "Copiado!" : "Copiar Texto"}
             </button>
           </div>
         </div>
