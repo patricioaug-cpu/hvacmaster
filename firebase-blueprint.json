@@ -39,6 +39,18 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "email", "name", "timestamp"]
+    },
+    "Device": {
+      "title": "Device",
+      "description": "Device trial tracking",
+      "type": "object",
+      "properties": {
+        "firstUser": { "type": "string" },
+        "firstEmail": { "type": "string" },
+        "trialEnd": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["firstUser", "firstEmail", "trialEnd", "createdAt"]
     }
   },
   "firestore": {
@@ -53,6 +65,10 @@
     "/logins/{logId}": {
       "schema": "LoginLog",
       "description": "Login history logs"
+    },
+    "/devices/{deviceId}": {
+      "schema": "Device",
+      "description": "Device trial tracking documents"
     }
   }
 }

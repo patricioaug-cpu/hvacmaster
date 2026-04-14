@@ -90,6 +90,14 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isAuthenticated();
     }
+
+    match /devices/{deviceId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                      request.resource.data.keys().hasAll(['firstUser', 'firstEmail', 'trialEnd', 'createdAt']) &&
+                      request.resource.data.firstUser == request.auth.uid;
+      allow update: if isAdmin();
+    }
     
     match /test/connection {
       allow read: if true;

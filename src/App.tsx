@@ -8,7 +8,7 @@ import { auth } from './firebase';
 import { signOut } from 'firebase/auth';
 
 function AppContent() {
-  const { user, profile, loading, isAdmin, isTrialExpired } = useAuth();
+  const { user, profile, loading, isAdmin, isTrialExpired, isDeviceBlocked } = useAuth();
   const [view, setView] = React.useState<'calc' | 'admin'>('calc');
   const [showHelp, setShowHelp] = React.useState(false);
 
@@ -29,9 +29,14 @@ function AppContent() {
       <div className="min-h-screen bg-black flex items-center justify-center p-4">
         <div className="hvac-card max-w-md text-center">
           <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-4">Período de Avaliação Encerrado</h1>
+          <h1 className="text-2xl font-bold mb-4">
+            {isDeviceBlocked ? 'Dispositivo Bloqueado' : 'Período de Avaliação Encerrado'}
+          </h1>
           <p className="text-gray-400 mb-8">
-            Seu período de 7 dias de teste terminou. Para continuar utilizando todas as ferramentas profissionais de dimensionamento, entre em contato.
+            {isDeviceBlocked 
+              ? 'Este dispositivo já atingiu o limite de 7 dias de uso gratuito. A criação de novas contas no mesmo aparelho não renova o período de teste.'
+              : 'Seu período de 7 dias de teste terminou. Para continuar utilizando todas as ferramentas profissionais de dimensionamento, entre em contato.'
+            }
           </p>
           <a 
             href="mailto:patricioaug@gmail.com" 
